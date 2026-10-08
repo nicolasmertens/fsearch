@@ -367,13 +367,24 @@ fn wait_for_index(dir: &Path) -> Index {
 
 #[rustfmt::skip]
 const GATED_IN_HOME: &[&str] = &[
-    "Desktop", "Documents", "Downloads", "Library/Mobile Documents", "Library/Containers", "Library/Group Containers",
-    "Library/CloudStorage", "Pictures/Photos Library.photoslibrary",
+    // All of Library: without Full Disk Access too many of its folders (Mail,
+    // Messages, Safari, ...) block on a consent prompt a login agent never sees.
+    "Desktop", "Documents", "Downloads", "Library", "Pictures", "Movies", "Music",
 ];
 
 /// Folders macOS guards with a consent prompt (or that hold other volumes).
+/// Other users' homes are skipped too: opening their gated folders from a
+/// login agent blocks in openat on a prompt nobody sees.
 pub fn gated(home: &str) -> Vec<Vec<u8>> {
-    GATED_IN_HOME.iter().map(|d| format!("{home}/{d}").into_bytes()).chain([b"/Volumes".to_vec()]).collect()
+    let others = std::fs::read_dir("/Users").into_iter().flatten().flatten().map(|e| e.path()).filter(|p| {
+        p.is_dir() && p.as_os_str().as_bytes() != home.as_bytes() && p.file_name().is_some_and(|n| n != "Shared")
+    });
+    GATED_IN_HOME
+        .iter()
+        .map(|d| format!("{home}/{d}").into_bytes())
+        .chain([b"/Volumes".to_vec()])
+        .chain(others.map(|p| p.as_os_str().as_bytes().to_vec()))
+        .collect()
 }
 
 /// The system TCC database is readable only with Full Disk Access, and
